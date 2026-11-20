@@ -208,7 +208,8 @@ function sendMcpRequest(ws, method, params) {
     logger.debug(`[MCP] Sending to ${info?.id || 'unknown'}: ${JSON.stringify(requestPayload)}`);
     ws.send(JSON.stringify(requestPayload));
 
-    const timeoutMs = method === 'tools/call' ? 5000 : 30000;
+          const timeoutMs = method === 'tools/call' ? 20000 : 30000;
+
     setTimeout(() => {
       if (mcpCallbacks.has(id)) {
         mcpCallbacks.delete(id);
@@ -1116,7 +1117,7 @@ wssXiaozhi.on('connection', (ws, req) => {
     }
   }
 
-  ws.on('message', (message, isBinary) => {
+    ws.on('message', (message, isBinary) => {
     if (isBinary) {
       decoder.write(message);
     } else {
@@ -1124,7 +1125,6 @@ wssXiaozhi.on('connection', (ws, req) => {
         const data = JSON.parse(message.toString());
         logger.debug(`[${sessionId}] Received from Xiaozhi: ${JSON.stringify(data)}`);
 
-        // Handle MCP JSON-RPC responses (can be top-level or wrapped in a Xiaozhi message)
         const possibleMcpData = data.payload || data;
         let mcpId = possibleMcpData.id;
         if (mcpId !== undefined && typeof mcpId === 'string' && !isNaN(Number(mcpId))) {
@@ -1149,47 +1149,24 @@ wssXiaozhi.on('connection', (ws, req) => {
           ws.send(JSON.stringify(payload));
 
           if (data.features && data.features.mcp) {
-            logger.info(`[${sessionId}] MCP features detected. Waiting for tools...`);
-
-            const mcpWaitPromise = new Promise((resolve) => {
-              const setupPromise = new Promise((innerResolve) => {
-                setTimeout(() => {
-                  logger.info(`[${sessionId}] Initializing MCP for device ${macAddress}`);
-                  setupMcpClient(ws, macAddress, true).catch(e => logger.error(`[MCP] Setup failed for ${macAddress}: ${e.message}`)).finally(innerResolve);
-                }, 1000);
+            logger.info(`[${sessionId}] MCP features detected. Initializing tools immediately...`);
+            setupMcpClient(ws, macAddress, true)
+              .catch(e => logger.error(`[MCP] Setup failed for ${macAddress}: ${e.message}`))
+              .finally(() => {
+                if (!provider) {
+                  logger.info(`[${sessionId}] Proceeding to start LLM session.`);
+                  startSession();
+                }
               });
-
-              const activeBackend = deviceConfig.llm_backend || LLM_BACKEND;
-              const qwenModel = deviceConfig.qwen_model || QWEN_MODEL;
-              if (activeBackend === 'qwen_realtime' || (activeBackend === 'qwen' && qwenModel.includes('realtime'))) {
-                // Skip tool wait timeout if we're using qwen realtime since it doesn't support them right now
-                logger.info(`[${sessionId}] Skipping tool discovery wait for Qwen Realtime backend.`);
-                resolve();
-              } else {
-                const timeoutPromise = new Promise((innerResolve) => {
-                  setTimeout(() => {
-                    logger.warn(`[${sessionId}] MCP tool discovery timed out after 5s`);
-                    innerResolve();
-                  }, 5000);
-                });
-  
-                Promise.race([setupPromise, timeoutPromise]).finally(resolve);
-              }
-            });
-
-            mcpWaitPromise.finally(() => {
-              if (!provider) {
-                logger.info(`[${sessionId}] Proceeding to start LLM session.`);
-                const activeBackend = deviceConfig.llm_backend || LLM_BACKEND;
-                startSession();
-              }
-            });
           } else {
             if (!provider) {
-              const activeBackend = deviceConfig.llm_backend || LLM_BACKEND;
               startSession();
             }
           }
+
+              
+            
+          
         } else if (data.type === 'listen' && data.state === 'start' && !provider) {
           // You can also start gemini session strictly when client sends listen: start
         } else if (data.type === 'abort') {
