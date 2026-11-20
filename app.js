@@ -631,7 +631,7 @@ wssXiaozhi.on('connection', (ws, req) => {
   let provider = null;
   let isSpeaking = false;
   let modeDone = false;
-
+  let audioBuffer = [];
   let audioOutputQueue = [];
   let audioSendInterval = null;
   const FRAME_DURATION_MS = 60;
