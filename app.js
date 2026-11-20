@@ -40,7 +40,7 @@ const GEMINI_VOICE = process.env.GEMINI_VOICE || 'Aoede';
 const QWEN_VOICE = process.env.QWEN_VOICE || 'Cherry';
 const LIQUID_SERVER_URL = process.env.LIQUID_SERVER_URL || 'http://127.0.0.1:8080';
 const MQTT_ENDPOINT = process.env.MQTT_ENDPOINT || 'mqtt://localhost:1883';
-const WEBSOCKET_URL_FOR_ALLOWED_DEVICE = process.env.WEBSOCKET_URL_FOR_ALLOWED_DEVICE || `ws://localhost:${PORT}/xiaozhi/v1/`;
+const WEBSOCKET_URL_FOR_ALLOWED_DEVICE = (process.env.WEBSOCKET_URL_FOR_ALLOWED_DEVICE || `ws://localhost:${PORT}/xiaozhi/v1/`).trim();
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin';
 const INVALID_TEST_TOKEN = process.env.INVALID_TEST_TOKEN || 'invalid_token';
 
