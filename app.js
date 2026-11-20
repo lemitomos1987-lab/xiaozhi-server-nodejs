@@ -469,7 +469,8 @@ function handleOta(req, res) {
           url: WEBSOCKET_URL_FOR_ALLOWED_DEVICE,
           token: devices[macAddress].token || CLIENT_AUTH_TOKEN
         },
-        server_time: { timestamp: Date.now(), timezone_offset: 28800 }
+        server_time: { timestamp: Date.now(), timezone_offset: 120 }
+
       };
     } else {
       logger.warn(`[OTA] Pending/Unapproved device ${macAddress} requested OTA.`);
