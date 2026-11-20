@@ -374,8 +374,8 @@ app.get('/photos', (req, res) => {
   res.send(html);
 });
 
-  res.send(html);
-});
+  
+
 // Admin Authentication Middleware
 function requireAuth(req, res, next) {
   if (req.session.authenticated) {
