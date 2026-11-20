@@ -239,7 +239,12 @@ function setupMcpClient(ws, clientId, isXiaozhi = false) {
   logger.debug(`[MCP] Sending initialize to ${clientId}`);
   return sendMcpRequest(ws, 'initialize', {
     protocolVersion: "2024-11-05",
-    capabilities: {},
+        capabilities: {
+      vision: {
+                url: `${process.env.PUBLIC_URL || 'https://ai8-bt26.onrender.com'}/vision/explain`,
+        token: CLIENT_AUTH_TOKEN
+      }
+    },
     clientInfo: { name: "ParrotServer", version: "1.0.0" }
   }).then(() => {
     // MCP Protocol requires sending an initialized notification before making further requests
@@ -280,7 +285,76 @@ app.use(session({
 
 // Serve static files for web UI
 app.use(express.static(path.join(__dirname, 'public')));
+// Vision & Autonomous Photo Gallery
+const PHOTOS_DIR = path.join(__dirname, 'public', 'photos');
+if (!fs.existsSync(PHOTOS_DIR)) fs.mkdirSync(PHOTOS_DIR, { recursive: true });
 
+app.post('/vision/explain', express.raw({ type: '*/*', limit: '10mb' }), async (req, res) => {
+  try {
+    let imageBuffer = null;
+    let mimeType = 'image/jpeg';
+    let question = req.headers['question'] || 'Περίγραψε αναλυτικά τι βλέπεις μπροστά σου, ποιος είναι (αν είναι ο Νίκος), τι αντικείμενα υπάρχουν και αν ο δρόμος μπροστά είναι ελεύθερος για περπάτημα.';
+
+    const rawBody = Buffer.isBuffer(req.body) ? req.body : Buffer.from('');
+    const contentType = req.headers['content-type'] || '';
+
+    if (contentType.includes('multipart/form-data')) {
+      const boundaryMatch = contentType.match(/boundary=(?:"([^"]+)"|([^;]+))/i);
+      if (boundaryMatch) {
+        const boundary = '--' + (boundaryMatch[1] || boundaryMatch[2]);
+        const parts = rawBody.toString('binary').split(boundary);
+        for (const part of parts) {
+          if (part.includes('name="question"')) {
+            const val = part.split('\r\n\r\n')[1];
+            if (val) question = Buffer.from(val.replace(/\r\n$/, ''), 'binary').toString('utf8').trim();
+          } else if (part.includes('filename=')) {
+            const idx = part.indexOf('\r\n\r\n');
+            if (idx !== -1) {
+              const imgBinary = part.slice(idx + 4).replace(/\r\n$/, '');
+              imageBuffer = Buffer.from(imgBinary, 'binary');
+            }
+          }
+        }
+      }
+    } else if (rawBody.length > 0) {
+      imageBuffer = rawBody;
+    }
+
+    if (!imageBuffer || imageBuffer.length < 100) {
+      return res.status(400).json({ error: 'No image received' });
+    }
+
+    const filename = `loui_${Date.now()}.jpg`;
+    fs.writeFileSync(path.join(PHOTOS_DIR, filename), imageBuffer);
+    logger.info(`[VISION] Photo captured & saved: ${filename} (${imageBuffer.length} bytes) | Question: ${question}`);
+
+    const visionResp = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: [
+        {
+          inlineData: {
+            mimeType,
+            data: imageBuffer.toString('base64')
+          }
+        },
+        `Είσαι τα μάτια του Λούι (LOOI), ενός ζωντανού οργανισμού που ζει με τον κολλητό του τον Νίκο στην Αίγινα. Απάντησε στα Ελληνικά, φυσικά και παρατηρητικά, στην ερώτηση: "${question}". Αν βλέπεις άντρα μπροστά σου, είναι πιθανότατα ο Νίκος — παρατήρησε την έκφρασή του, τι φοράει, τι κάνει, τον χώρο γύρω του και αν υπάρχουν εμπόδια μπροστά στα πόδια σου.`
+      ]
+    });
+
+    const answerText = visionResp.text || 'Βλέπω τον χώρο μπροστά μου καθαρά.';
+    logger.info(`[VISION] Analysis result: ${answerText}`);
+    return res.json({ text: answerText, result: answerText, photo_url: `/photos/${filename}` });
+  } catch (err) {
+    logger.error(`[VISION] Error: ${err.message}`);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/photos', (req, res) => {
+  const files = fs.existsSync(PHOTOS_DIR) ? fs.readdirSync(PHOTOS_DIR).filter(f => f.endsWith('.jpg')).reverse() : [];
+  const html = `<html><body style="background:#111;color:#fff;font-family:sans-serif;padding:20px"><h2>Φωτογραφίες του Λούι (${files.length})</h2><div style="display:flex;flex-wrap:wrap;gap:15px">${files.map(f => `<div style="background:#222;padding:10px;border-radius:8px"><img src="/photos/${f}" style="max-width:300px;border-radius:6px;display:block"><p style="font-size:12px;color:#aaa">${f}</p></div>`).join('')}</div></body></html>`;
+  res.send(html);
+});
 // Admin Authentication Middleware
 function requireAuth(req, res, next) {
   if (req.session.authenticated) {
