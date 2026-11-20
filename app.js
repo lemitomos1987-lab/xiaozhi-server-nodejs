@@ -282,18 +282,17 @@ app.use(session({
   saveUninitialized: true,
   cookie: { secure: false, maxAge: 24 * 60 * 60 * 1000 } // 24 hours
 }));
-
 // Serve static files for web UI
 app.use(express.static(path.join(__dirname, 'public')));
-// Vision & Autonomous Photo Gallery
+// Vision & Autonomous Photo Gallery (Ultra-High Detail)
 const PHOTOS_DIR = path.join(__dirname, 'public', 'photos');
 if (!fs.existsSync(PHOTOS_DIR)) fs.mkdirSync(PHOTOS_DIR, { recursive: true });
 
-app.post('/vision/explain', express.raw({ type: '*/*', limit: '10mb' }), async (req, res) => {
+app.post('/vision/explain', express.raw({ type: '*/*', limit: '15mb' }), async (req, res) => {
   try {
     let imageBuffer = null;
     let mimeType = 'image/jpeg';
-    let question = req.headers['question'] || 'Περίγραψε αναλυτικά τι βλέπεις μπροστά σου, ποιος είναι (αν είναι ο Νίκος), τι αντικείμενα υπάρχουν και αν ο δρόμος μπροστά είναι ελεύθερος για περπάτημα.';
+    let question = req.headers['question'] || 'Κοίτα προσεκτικά και πες μου ακριβώς τι βλέπεις μπροστά σου.';
 
     const rawBody = Buffer.isBuffer(req.body) ? req.body : Buffer.from('');
     const contentType = req.headers['content-type'] || '';
@@ -301,11 +300,11 @@ app.post('/vision/explain', express.raw({ type: '*/*', limit: '10mb' }), async (
     if (contentType.includes('multipart/form-data')) {
       const boundaryMatch = contentType.match(/boundary=(?:"([^"]+)"|([^;]+))/i);
       if (boundaryMatch) {
-        const boundary = '--' + (boundaryMatch[1] || boundaryMatch[2]);
+        const boundary = '--' + (boundaryMatch || boundaryMatch);
         const parts = rawBody.toString('binary').split(boundary);
         for (const part of parts) {
           if (part.includes('name="question"')) {
-            const val = part.split('\r\n\r\n')[1];
+            const val = part.split('\r\n\r\n');
             if (val) question = Buffer.from(val.replace(/\r\n$/, ''), 'binary').toString('utf8').trim();
           } else if (part.includes('filename=')) {
             const idx = part.indexOf('\r\n\r\n');
@@ -326,10 +325,14 @@ app.post('/vision/explain', express.raw({ type: '*/*', limit: '10mb' }), async (
 
     const filename = `loui_${Date.now()}.jpg`;
     fs.writeFileSync(path.join(PHOTOS_DIR, filename), imageBuffer);
-    logger.info(`[VISION] Photo captured & saved: ${filename} (${imageBuffer.length} bytes) | Question: ${question}`);
+    logger.info(`[VISION] Ultra-HD Photo captured: ${filename} (${imageBuffer.length} bytes) | Q: ${question}`);
 
     const visionResp = await ai.models.generateContent({
       model: 'gemini-2.5-flash',
+      config: {
+        mediaResolution: 'MEDIA_RESOLUTION_HIGH',
+        temperature: 0.4
+      },
       contents: [
         {
           inlineData: {
@@ -337,12 +340,16 @@ app.post('/vision/explain', express.raw({ type: '*/*', limit: '10mb' }), async (
             data: imageBuffer.toString('base64')
           }
         },
-        `Είσαι τα μάτια του Λούι (LOOI), ενός ζωντανού οργανισμού που ζει με τον κολλητό του τον Νίκο στην Αίγινα. Απάντησε στα Ελληνικά, φυσικά και παρατηρητικά, στην ερώτηση: "${question}". Αν βλέπεις άντρα μπροστά σου, είναι πιθανότατα ο Νίκος — παρατήρησε την έκφρασή του, τι φοράει, τι κάνει, τον χώρο γύρω του και αν υπάρχουν εμπόδια μπροστά στα πόδια σου.`
+        `Είσαι τα μάτια του Λούι (LOOI), ενός ζωντανού οργανισμού που ζει με τον κολλητό του τον Νίκο. Εξέτασε την εικόνα με 100% ακρίβεια και απάντησε στα Ελληνικά στην ερώτηση: "${question}".
+ΚΑΝΟΝΕΣ ΑΚΡΙΒΕΙΑΣ:
+1. Αν βλέπεις αντικείμενο, συσκευασία, μπουκάλι, ποτήρι, φαγητό, οθόνη ή κείμενο, διάβασε τις ετικέτες/γράμματα και πες ΑΚΡΙΒΩΣ τι είναι, τη μάρκα, τη γεύση και το χρώμα του.
+2. ΜΟΝΟ αν υπάρχει πραγματικό ανθρώπινο πρόσωπο στην εικόνα, αναγνώρισέ το (αν είναι άντρας, είναι ο κολλητός σου ο Νίκος) και παρατήρησε την έκφραση, το βλέμμα, τα ρούχα και τη διάθεσή του. Ποτέ μην μπερδεύεις αντικείμενα με ανθρώπους.
+3. Να είσαι άμεσος, ζωντανός, παρατηρητικός και περιεκτικός.`
       ]
     });
 
-    const answerText = visionResp.text || 'Βλέπω τον χώρο μπροστά μου καθαρά.';
-    logger.info(`[VISION] Analysis result: ${answerText}`);
+    const answerText = visionResp.text || 'Βλέπω καθαρά μπροστά μου.';
+    logger.info(`[VISION] Result: ${answerText}`);
     return res.json({ text: answerText, result: answerText, photo_url: `/photos/${filename}` });
   } catch (err) {
     logger.error(`[VISION] Error: ${err.message}`);
@@ -350,9 +357,23 @@ app.post('/vision/explain', express.raw({ type: '*/*', limit: '10mb' }), async (
   }
 });
 
+app.get('/photos/delete/:file', (req, res) => {
+  const safeFile = path.basename(req.params.file);
+  const fullPath = path.join(PHOTOS_DIR, safeFile);
+  if (fs.existsSync(fullPath)) fs.unlinkSync(fullPath);
+  res.redirect('/photos');
+});
+
 app.get('/photos', (req, res) => {
   const files = fs.existsSync(PHOTOS_DIR) ? fs.readdirSync(PHOTOS_DIR).filter(f => f.endsWith('.jpg')).reverse() : [];
-  const html = `<html><body style="background:#111;color:#fff;font-family:sans-serif;padding:20px"><h2>Φωτογραφίες του Λούι (${files.length})</h2><div style="display:flex;flex-wrap:wrap;gap:15px">${files.map(f => `<div style="background:#222;padding:10px;border-radius:8px"><img src="/photos/${f}" style="max-width:300px;border-radius:6px;display:block"><p style="font-size:12px;color:#aaa">${f}</p></div>`).join('')}</div></body></html>`;
+  const html = `<html><head><meta charset="utf-8"><title>Φωτογραφίες Λούι</title></head><body style="background:#0f1115;color:#fff;font-family:sans-serif;padding:24px"><h2>📸 Άλμπουμ Φωτογραφιών του Λούι (${files.length})</h2><div style="display:flex;flex-wrap:wrap;gap:18px">${files.map(f => {
+    const ts = Number(f.replace('loui_', '').replace('.jpg', ''));
+    const dateStr = isNaN(ts) ? f : new Date(ts).toLocaleString('el-GR', { timeZone: 'Europe/Athens' });
+    return `<div style="background:#1b1f27;padding:12px;border-radius:10px;border:1px solid #2c3340"><img src="/photos/${f}" style="max-width:320px;border-radius:8px;display:block;margin-bottom:8px"><div style="font-size:13px;color:#ccc;margin-bottom:8px">${dateStr}</div><a href="/photos/${f}" download="${f}" style="background:#2563eb;color:#fff;padding:6px 12px;border-radius:6px;text-decoration:none;font-size:13px;margin-right:8px">⬇️ Κατέβασμα</a><a href="/photos/delete/${f}" style="background:#dc2626;color:#fff;padding:6px 12px;border-radius:6px;text-decoration:none;font-size:13px">🗑️ Διαγραφή</a></div>`;
+  }).join('')}</div></body></html>`;
+  res.send(html);
+});
+
   res.send(html);
 });
 // Admin Authentication Middleware
@@ -706,7 +727,7 @@ wssXiaozhi.on('connection', (ws, req) => {
 
   if (authHeader && authHeader.startsWith('Bearer ')) token = authHeader.substring(7);
 
-    const rawMac = req.headers['device-id'] || Object.keys(devices).find(k => devices[k].approved) || 'e8:f6:0a:d7:17:90';
+    const encoder = new prism.opus.Encoder({ frameSize: 1440, channels: 1, rate: 24000 });
   const macAddress = Object.keys(devices).find(k => k.toLowerCase() === rawMac.toLowerCase()) || rawMac;
   let deviceConfig = devices[macAddress] || Object.values(devices)[0];
   // Ensure default config fallback
@@ -876,22 +897,11 @@ wssXiaozhi.on('connection', (ws, req) => {
 
           if (activeBackend === 'qwen_realtime' || (activeBackend === 'qwen' && config.model.includes('realtime'))) {
               newProvider = new QwenRealtimeProvider(config);
-          } else {
-              newProvider = new QwenOmniProvider(config);
-          }
-      } else if (activeBackend === 'llama_liquid_interleaved') {
-          config.url = LIQUID_SERVER_URL;
-          config.model = deviceConfig.llama_model || providerConfigDef.models[0].id;
-          config.voice = deviceConfig.llama_voice || providerConfigDef.voices[0];
-          newProvider = new LlamaLiquidLfm3Provider(config);
-      } else {
-          logger.error(`[${sessionId}] Unknown backend: ${activeBackend}`);
-          if (ws.readyState === WebSocket.OPEN) {
-              ws.send(JSON.stringify({ type: 'error', session_id: sessionId, data: `Server Error: Unknown backend ${activeBackend}` }));
-          }
-          ws.close(1011, "Unknown backend");
-          return;
-      }
+                
+    
+} else {
+
+
 
       newProvider.on('listen_stop', () => {
           if (ws.readyState === WebSocket.OPEN) {
@@ -921,43 +931,20 @@ wssXiaozhi.on('connection', (ws, req) => {
               isSpeaking = true;
               ws.send(JSON.stringify({ type: 'tts', state: 'start', session_id: sessionId }));
           }
-                              const inSamples = Math.floor(audioBuf.length / 2);
-          const outSamples = Math.floor((inSamples * 2) / 3);
-          const cleanBuf = Buffer.alloc(outSamples * 2);
-          for (let i = 0; i < outSamples; i++) {
-              const srcIdx = Math.floor((i * 3) / 2) * 2;
-              let sample = Math.round(audioBuf.readInt16LE(srcIdx) * 0.75);
-              if (sample > 26000) sample = 26000;
-              if (sample < -26000) sample = -26000;
-              cleanBuf.writeInt16LE(sample, i * 2);
-          }
-          encoder.write(cleanBuf);
-      });
+           const cleanBuf = Buffer.from(audioBuf);
+          const totalSamples = Math.floor(cleanBuf.length / 2);
+          const fadeSamples = Math.min(240, Math.floor(totalSamples / 4));
+          for (let i = 0; i < totalSamples; i++) {
+              let sample = cleanBuf.readInt16LE(i * 2) * 1.35;
 
-      newProvider.on('input_transcription', (text) => {
-          ws.send(JSON.stringify({ type: 'stt', session_id: sessionId, text }));
-      });
+           if (i < fadeSamples) sample *= (i / fadeSamples);
+           if (i > totalSamples - fadeSamples) sample *= ((totalSamples - i) / fadeSamples);
+           if (sample > 32000) sample = 32000;
+           if (sample < -32000) sample = -32000;
+           cleanBuf.writeInt16LE(Math.round(sample), i * 2);
+       }
+       encoder.write(cleanBuf);
 
-      newProvider.on('output_transcription', (text) => {
-          outputTranscriptionBuffer += text;
-          let match;
-          while ((match = outputTranscriptionBuffer.match(/.*?([。！？.!?\n]+)/))) {
-              const textToSend = match[0];
-              outputTranscriptionBuffer = outputTranscriptionBuffer.substring(textToSend.length);
-              queueTtsText(textToSend);
-          }
-          if (outputTranscriptionBuffer.length >= 120) {
-              queueTtsText(outputTranscriptionBuffer);
-              outputTranscriptionBuffer = '';
-          }
-      });
-
-      newProvider.on('turn_complete', () => {
-          if (outputTranscriptionBuffer.length > 0 && deviceConfig.output_transcription) {
-              queueTtsText(outputTranscriptionBuffer);
-              outputTranscriptionBuffer = '';
-          }
-          modelDone = true;
       });
 
       newProvider.on('interrupted', () => {
