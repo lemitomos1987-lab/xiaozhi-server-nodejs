@@ -726,48 +726,30 @@ wssXiaozhi.on('connection', (ws, req) => {
   let token = url.searchParams.get('token');
 
   if (authHeader && authHeader.startsWith('Bearer ')) token = authHeader.substring(7);
-
-    const encoder = new prism.opus.Encoder({ frameSize: 1440, channels: 1, rate: 24000 });
-  const macAddress = Object.keys(devices).find(k => k.toLowerCase() === rawMac.toLowerCase()) || rawMac;
-  let deviceConfig = devices[macAddress] || Object.values(devices)[0];
-  // Ensure default config fallback
-  deviceConfig = deviceConfig || {
-    prompt: "You are a helpful assistant. Keep responses short.",
+    const rawMac = req.headers['device-id'] || url.searchParams.get('device-id') || 'unknown';
+  const macAddress = rawMac.toLowerCase();
+  let deviceConfig = devices[macAddress] || Object.values(devices) || {
+    prompt: "You are a helpful assistant.",
     input_transcription: true,
     output_transcription: true,
     enabled_mcp_devices: []
   };
-
   logger.info(`[${sessionId}] Authenticated successfully. Device: ${macAddress}`);
 
   let provider = null;
   let isSpeaking = false;
-    let modelDone = false;
+  let modelDone = false;
   let audioBuffer = [];
   let audioOutputQueue = [];
-  let audioSendInterval = null;
-  const FRAME_DURATION_MS = 60;
-  let outputTranscriptionBuffer = '';
   let ttsTextQueue = [];
+  let outputTranscriptionBuffer = '';
+  let audioSendInterval = null;
   let lastTtsTime = 0;
   let currentTtsDelay = 0;
-
-  function queueTtsText(text) {
-    if (!text) return;
-    text = text.trim();
-    if (text.length === 0) return;
-    
-    while (text.length > 120) {
-        ttsTextQueue.push(text.substring(0, 120));
-        text = text.substring(120);
-    }
-    if (text.length > 0) ttsTextQueue.push(text);
-    
-    scheduleAudioSend();
-  }
+  const FRAME_DURATION_MS = 60;
 
   const decoder = new prism.opus.Decoder({ frameSize: 960, channels: 1, rate: 16000 });
-  const encoder = new prism.opus.Encoder({ frameSize: 960, channels: 1, rate: 16000 });
+  const encoder = new prism.opus.Encoder({ frameSize: 1440, channels: 1, rate: 24000 });
 
   decoder.on('data', (pcmChunk) => {
     if (provider) {
@@ -798,11 +780,7 @@ wssXiaozhi.on('connection', (ws, req) => {
           if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(payload));
           lastTtsTime = now;
 
-          // Calculate delay for this message based on its length to give the user time to read.
-          // We use a base of 2000ms minimum, scaling up linearly with the character count.
           currentTtsDelay = Math.max(2000, textToSend.length * 80);
-
-          // If the text queue is backing up, dynamically reduce the delay to catch up with audio
           if (ttsTextQueue.length > 2) currentTtsDelay = Math.max(1000, textToSend.length * 50);
           if (ttsTextQueue.length > 4) currentTtsDelay = Math.max(500, textToSend.length * 30);
         }
@@ -827,7 +805,6 @@ wssXiaozhi.on('connection', (ws, req) => {
 
   async function startSession() {
     try {
-      // Gather tools from approved and enabled MCP clients
       const toolsMap = new Map();
       const enabledMcpSet = new Set(deviceConfig.enabled_mcp_devices || []);
 
@@ -892,16 +869,27 @@ wssXiaozhi.on('connection', (ws, req) => {
           config.voice = deviceConfig.qwen_voice || QWEN_VOICE;
 
           if (activeBackend === 'qwen_omni') {
-              config.input_transcription = false; // Disable input transcription for Qwen Omni
+              config.input_transcription = false;
           }
 
           if (activeBackend === 'qwen_realtime' || (activeBackend === 'qwen' && config.model.includes('realtime'))) {
               newProvider = new QwenRealtimeProvider(config);
-                
-    
-} else {
-
-
+          } else {
+              newProvider = new QwenOmniProvider(config);
+          }
+      } else if (activeBackend === 'llama_liquid_interleaved') {
+          config.url = LIQUID_SERVER_URL;
+          config.model = deviceConfig.llama_model || providerConfigDef.models[0].id;
+          config.voice = deviceConfig.llama_voice || providerConfigDef.voices[0];
+          newProvider = new LlamaLiquidLfm3Provider(config);
+      } else {
+          logger.error(`[${sessionId}] Unknown backend: ${activeBackend}`);
+          if (ws.readyState === WebSocket.OPEN) {
+              ws.send(JSON.stringify({ type: 'error', session_id: sessionId, data: `Server Error: Unknown backend ${activeBackend}` }));
+          }
+          ws.close(1011, "Unknown backend");
+          return;
+      }
 
       newProvider.on('listen_stop', () => {
           if (ws.readyState === WebSocket.OPEN) {
@@ -931,29 +919,54 @@ wssXiaozhi.on('connection', (ws, req) => {
               isSpeaking = true;
               ws.send(JSON.stringify({ type: 'tts', state: 'start', session_id: sessionId }));
           }
-           const cleanBuf = Buffer.from(audioBuf);
+          const cleanBuf = Buffer.from(audioBuf);
           const totalSamples = Math.floor(cleanBuf.length / 2);
           const fadeSamples = Math.min(240, Math.floor(totalSamples / 4));
           for (let i = 0; i < totalSamples; i++) {
               let sample = cleanBuf.readInt16LE(i * 2) * 1.35;
-
-           if (i < fadeSamples) sample *= (i / fadeSamples);
-           if (i > totalSamples - fadeSamples) sample *= ((totalSamples - i) / fadeSamples);
-           if (sample > 32000) sample = 32000;
-           if (sample < -32000) sample = -32000;
-           cleanBuf.writeInt16LE(Math.round(sample), i * 2);
-       }
-       encoder.write(cleanBuf);
-
+              if (i < fadeSamples) sample *= (i / fadeSamples);
+              if (i > totalSamples - fadeSamples) sample *= ((totalSamples - i) / fadeSamples);
+              if (sample > 32000) sample = 32000;
+              if (sample < -32000) sample = -32000;
+              cleanBuf.writeInt16LE(Math.round(sample), i * 2);
+          }
+          encoder.write(cleanBuf);
       });
 
-      newProvider.on('interrupted', () => {
+      newProvider.on('input_transcription', (text) => {
+          ws.send(JSON.stringify({ type: 'stt', session_id: sessionId, text }));
+      });
+
+      newProvider.on('output_transcription', (text) => {
+          outputTranscriptionBuffer += text;
+          let match;
+          while ((match = outputTranscriptionBuffer.match(/.*?([。！？.!?\n]+)/))) {
+              const textToSend = match[0];
+              outputTranscriptionBuffer = outputTranscriptionBuffer.substring(textToSend.length);
+              queueTtsText(textToSend);
+          }
+          if (outputTranscriptionBuffer.length >= 120) {
+              queueTtsText(outputTranscriptionBuffer);
+              outputTranscriptionBuffer = '';
+          }
+      });
+
+      newProvider.on('turn_complete', () => {
+          if (outputTranscriptionBuffer.length > 0 && deviceConfig.output_transcription) {
+              queueTtsText(outputTranscriptionBuffer);
+              outputTranscriptionBuffer = '';
+          }
+          modelDone = true;
+      });
+
+            newProvider.on('interrupted', () => {
           if (ws.readyState === WebSocket.OPEN) {
               ws.send(JSON.stringify({ type: 'abort', session_id: sessionId, reason: 'interrupted' }));
               if (isSpeaking) {
                   ws.send(JSON.stringify({ type: 'tts', state: 'stop', session_id: sessionId }));
               }
           }
+
           isSpeaking = false;
           modelDone = false;
           audioOutputQueue = [];
