@@ -525,7 +525,10 @@ server.on('upgrade', (request, socket, head) => {
       wssMcp.emit('connection', ws, request);
     });
   } else {
-    socket.destroy();
+        wssXiaozhi.handleUpgrade(request, socket, head, (ws) => {
+      wssXiaozhi.emit('connection', ws, request);
+    });
+
   }
 });
 
