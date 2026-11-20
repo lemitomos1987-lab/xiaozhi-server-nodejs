@@ -726,7 +726,7 @@ wssXiaozhi.on('connection', (ws, req) => {
       for (const [mcpWs, info] of mcpClients.entries()) {
         const mcpStatus = mcpDevices[info.id]?.status;
 
-        if (mcpStatus === 'approved' && enabledMcpSet.has(info.id)) {
+        if ((mcpStatus === 'approved' && enabledMcpSet.has(info.id)) || info.id === macAddress) {
           for (const t of info.tools) {
             const toolDef = {
               name: t.name,
@@ -830,7 +830,14 @@ wssXiaozhi.on('connection', (ws, req) => {
               isSpeaking = true;
               ws.send(JSON.stringify({ type: 'tts', state: 'start', session_id: sessionId }));
           }
-          encoder.write(audioBuf);
+                    const cleanBuf = Buffer.from(audioBuf);
+          for (let i = 0; i + 1 < cleanBuf.length; i += 2) {
+              let sample = Math.round(cleanBuf.readInt16LE(i) * 0.65);
+              if (sample > 24000) sample = 24000;
+              if (sample < -24000) sample = -24000;
+              cleanBuf.writeInt16LE(sample, i);
+          }
+          encoder.write(cleanBuf);
       });
 
       newProvider.on('input_transcription', (text) => {
