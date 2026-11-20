@@ -415,7 +415,8 @@ app.delete('/api/mcp_devices/:id', requireAuth, (req, res) => {
 });
 
 // Xiaozhi OTA / Discovery Endpoint
-app.all(/^\/xiaozhi\/ota/, (req, res) => {
+app.all(['/', '/ota', '/ota/', '/xiaozhi/ota', '/xiaozhi/ota/'], (req, res) => {
+
   handleOta(req, res);
 });
 
