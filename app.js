@@ -170,6 +170,23 @@ const builtinTools = [
       additionalProperties: false
     }
   }
+    ,
+  {
+    name: "set_emotion",
+    description: "Change the facial expression / animation displayed on the robot screen to match your current emotion.",
+    parameters: {
+      type: "object",
+      properties: {
+        emotion: {
+          type: "string",
+          enum: ["neutral", "happy", "laughing", "funny", "sad", "angry", "crying", "loving", "embarrassed", "surprised", "shocked", "thinking", "wink", "cool", "relaxed", "delicious", "kissy", "confident", "sleepy", "silly", "confused"],
+          description: "The emotion animation to show on the robot face."
+        }
+      },
+      required: ["emotion"],
+      additionalProperties: false
+    }
+  }
 ];
 
 // MCP Server State
@@ -655,7 +672,7 @@ wssXiaozhi.on('connection', (ws, req) => {
   }
 
   const decoder = new prism.opus.Decoder({ frameSize: 960, channels: 1, rate: 16000 });
-  const encoder = new prism.opus.Encoder({ frameSize: 1440, channels: 1, rate: 24000 });
+  const encoder = new prism.opus.Encoder({ frameSize: 960, channels: 1, rate: 16000 });
 
   decoder.on('data', (pcmChunk) => {
     if (provider) {
@@ -830,12 +847,15 @@ wssXiaozhi.on('connection', (ws, req) => {
               isSpeaking = true;
               ws.send(JSON.stringify({ type: 'tts', state: 'start', session_id: sessionId }));
           }
-                    const cleanBuf = Buffer.from(audioBuf);
-          for (let i = 0; i + 1 < cleanBuf.length; i += 2) {
-              let sample = Math.round(cleanBuf.readInt16LE(i) * 0.65);
-              if (sample > 24000) sample = 24000;
-              if (sample < -24000) sample = -24000;
-              cleanBuf.writeInt16LE(sample, i);
+                              const inSamples = Math.floor(audioBuf.length / 2);
+          const outSamples = Math.floor((inSamples * 2) / 3);
+          const cleanBuf = Buffer.alloc(outSamples * 2);
+          for (let i = 0; i < outSamples; i++) {
+              const srcIdx = Math.floor((i * 3) / 2) * 2;
+              let sample = Math.round(audioBuf.readInt16LE(srcIdx) * 0.75);
+              if (sample > 26000) sample = 26000;
+              if (sample < -26000) sample = -26000;
+              cleanBuf.writeInt16LE(sample, i * 2);
           }
           encoder.write(cleanBuf);
       });
@@ -881,7 +901,13 @@ wssXiaozhi.on('connection', (ws, req) => {
 
       newProvider.on('tool_call', (callId, name, args) => {
           logger.info(`[${sessionId}] Provider requested tool call: ${name}`);
-
+          if (name === 'set_emotion') {
+              if (ws.readyState === WebSocket.OPEN && args.emotion) {
+                  ws.send(JSON.stringify({ type: 'llm', emotion: args.emotion, session_id: sessionId }));
+              }
+              if (provider) provider.sendToolResponse(callId, name, JSON.stringify({ success: true, emotion: args.emotion }));
+              return;
+          }
           if (name === 'server.get_pending_devices') {
               const pendingDevices = [];
               for (const [mac, data] of Object.entries(devices)) {
@@ -970,7 +996,7 @@ wssXiaozhi.on('connection', (ws, req) => {
 
           let targetWs = null;
           for (const [mcpWs, info] of mcpClients.entries()) {              const mcpStatus = mcpDevices[info.id]?.status;
-              if (mcpStatus === 'approved' && enabledMcpSet.has(info.id)) {
+              if ((mcpStatus === 'approved' && enabledMcpSet.has(info.id)) || info.id === macAddress) {
                   if (info.tools.find(t => t.name === name)) {
                       targetWs = mcpWs;
                       break;
