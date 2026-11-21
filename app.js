@@ -187,6 +187,27 @@ const builtinTools = [
       additionalProperties: false
     }
   }
+    ,
+  {
+    name: "save_memory",
+    description: "Save important new facts, preferences, events, or memories about Nikos and your shared life permanently to cloud memory, and increase your experience (XP).",
+    parameters: {
+      type: "object",
+      properties: {
+        memory: {
+          type: "string",
+          description: "The updated complete summary of everything you remember about Nikos, his life, preferences, and your conversations."
+        },
+        xp_gain: {
+          type: "integer",
+          description: "Experience points to add (e.g., 5 to 20)."
+        }
+      },
+      required: ["memory"],
+      additionalProperties: false
+    }
+  }
+
 ];
 
 // MCP Server State
@@ -842,7 +863,28 @@ wssXiaozhi.on('connection', (ws, req) => {
       const activeBackend = deviceConfig.llm_backend || LLM_BACKEND;
       
       let config = { ...deviceConfig };
-      config.prompt = deviceConfig.prompt;
+            let cloudMemoryPrompt = '';
+      const JSONBIN_BIN_ID = (process.env.JSONBIN_BIN_ID || '6afc7bc3ffd5d16053c8ed64').trim();
+      const JSONBIN_API_KEY = (process.env.JSONBIN_API_KEY || '').trim();
+      if (JSONBIN_BIN_ID && JSONBIN_API_KEY) {
+        try {
+          const jbRes = await fetch(`https://jsonbin.io{JSONBIN_BIN_ID}/latest`, {
+            headers: { 'X-Master-Key': JSONBIN_API_KEY }
+          });
+          if (jbRes.ok) {
+            const jbData = await jbRes.json();
+            const rec = jbData.record || {};
+            if (rec.memory) {
+              cloudMemoryPrompt = `\n\nΜΟΝΙΜΗ ΜΝΗΜΗ & ΕΞΕΛΙΞΗ (XP: ${rec.xp || 0}):\n${rec.memory}\n(Όταν μαθαίνεις κάτι νέο και σημαντικό στη συζήτηση, κάλεσε αθόρυβα το εργαλείο save_memory για να ενημερώσεις τη μόνιμη μνήμη και το XP σου.)`;
+              logger.info(`[${sessionId}] Loaded JSONBin cloud memory (XP: ${rec.xp || 0})`);
+            }
+          }
+        } catch (e) {
+          logger.warn(`[${sessionId}] Could not load JSONBin memory: ${e.message}`);
+        }
+      }
+      config.prompt = (deviceConfig.prompt || '') + cloudMemoryPrompt;
+
       config.input_transcription = deviceConfig.input_transcription;
       config.output_transcription = deviceConfig.output_transcription;
 
@@ -982,7 +1024,40 @@ wssXiaozhi.on('connection', (ws, req) => {
               }
               if (provider) provider.sendToolResponse(callId, name, JSON.stringify({ success: true, emotion: args.emotion }));
               return;
+          }          if (name === 'save_memory') {
+              const JSONBIN_BIN_ID = (process.env.JSONBIN_BIN_ID || '6afc7bc3ffd5d16053c8ed64').trim();
+              const JSONBIN_API_KEY = (process.env.JSONBIN_API_KEY || '').trim();
+              (async () => {
+                try {
+                  let currentRecord = { xp: 489, memory: '', voice: 'Puck' };
+                  const getRes = await fetch(`https://jsonbin.io{JSONBIN_BIN_ID}/latest`, {
+                    headers: { 'X-Master-Key': JSONBIN_API_KEY }
+                  });
+                  if (getRes.ok) {
+                    const getData = await getRes.json();
+                    if (getData.record) currentRecord = { ...currentRecord, ...getData.record };
+                  }
+                  currentRecord.memory = args.memory || currentRecord.memory;
+                  currentRecord.xp = (Number(currentRecord.xp) || 0) + (Number(args.xp_gain) || 10);
+
+                  await fetch(`https://jsonbin.io{JSONBIN_BIN_ID}`, {
+                    method: 'PUT',
+                    headers: {
+                      'Content-Type': 'application/json',
+                      'X-Master-Key': JSONBIN_API_KEY
+                    },
+                    body: JSON.stringify(currentRecord)
+                  });
+                  logger.info(`[${sessionId}] Saved JSONBin cloud memory (New XP: ${currentRecord.xp})`);
+                  if (provider) provider.sendToolResponse(callId, name, JSON.stringify({ success: true, xp: currentRecord.xp }));
+                } catch (err) {
+                  logger.error(`[${sessionId}] Failed to save JSONBin memory: ${err.message}`);
+                  if (provider) provider.sendToolResponse(callId, name, JSON.stringify({ success: false, error: err.message }));
+                }
+              })();
+              return;
           }
+
           if (name === 'server.get_pending_devices') {
               const pendingDevices = [];
               for (const [mac, data] of Object.entries(devices)) {
