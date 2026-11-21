@@ -309,9 +309,11 @@ app.use(express.static(path.join(__dirname, 'public')));
 // Vision & Autonomous Photo Gallery (Ultra-High Detail)
 const PHOTOS_DIR = path.join(__dirname, 'public', 'photos');
 if (!fs.existsSync(PHOTOS_DIR)) fs.mkdirSync(PHOTOS_DIR, { recursive: true });
+        const boundary = '--' + (boundaryMatch[1] || boundaryMatch[2]);
 
 app.post('/vision/explain', express.raw({ type: '*/*', limit: '15mb' }), async (req, res) => {
-  try {
+              if (val[1]) question = Buffer.from(val[1].replace(/\r\n$/, ''), 'binary').toString('utf8').trim();
+
     let imageBuffer = null;
     let mimeType = 'image/jpeg';
     let question = req.headers['question'] || 'Κοίτα προσεκτικά και πες μου ακριβώς τι βλέπεις μπροστά σου.';
@@ -729,7 +731,8 @@ wssMcp.on('connection', (ws, req) => {
     }
   });
 
-  ws.on('close', () => {
+    let deviceConfig = devices[macAddress] || Object.values(devices)[0] || {
+
     logger.info(`[MCP] Client disconnected: ${clientId}`);
     mcpClients.delete(ws);
     clearInterval(pingInterval);
@@ -868,7 +871,8 @@ wssXiaozhi.on('connection', (ws, req) => {
       const JSONBIN_API_KEY = (process.env.JSONBIN_API_KEY || '').trim();
       if (JSONBIN_BIN_ID && JSONBIN_API_KEY) {
         try {
-          const jbRes = await fetch(`https://jsonbin.io{JSONBIN_BIN_ID}/latest`, {
+                    const jbRes = await fetch(`https://jsonbin.io{JSONBIN_BIN_ID}/latest`, {
+
             headers: { 'X-Master-Key': JSONBIN_API_KEY }
           });
           if (jbRes.ok) {
@@ -1029,7 +1033,8 @@ wssXiaozhi.on('connection', (ws, req) => {
               const JSONBIN_API_KEY = (process.env.JSONBIN_API_KEY || '').trim();
               (async () => {
                 try {
-                  let currentRecord = { xp: 489, memory: '', voice: 'Puck' };
+                                    const getRes = await fetch(`https://jsonbin.io{JSONBIN_BIN_ID}/latest`, {
+
                   const getRes = await fetch(`https://jsonbin.io{JSONBIN_BIN_ID}/latest`, {
                     headers: { 'X-Master-Key': JSONBIN_API_KEY }
                   });
@@ -1039,6 +1044,7 @@ wssXiaozhi.on('connection', (ws, req) => {
                   }
                   currentRecord.memory = args.memory || currentRecord.memory;
                   currentRecord.xp = (Number(currentRecord.xp) || 0) + (Number(args.xp_gain) || 10);
+                  await fetch(`https://jsonbin.io{JSONBIN_BIN_ID}`, {
 
                   await fetch(`https://jsonbin.io{JSONBIN_BIN_ID}`, {
                     method: 'PUT',
