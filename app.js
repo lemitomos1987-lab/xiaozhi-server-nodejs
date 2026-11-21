@@ -30,7 +30,7 @@ const providersConfig = require('./providers/config');
 // Configuration
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const DASHSCOPE_API_KEY = process.env.DASHSCOPE_API_KEY;
-const LLM_BACKEND = process.env.LLM_BACKEND || 'gemini'; // 'gemini' or 'qwen'
+const LLM_BACKEND = process.env.LLM_BACKEND || 'gemini';
 const CLIENT_AUTH_TOKEN = process.env.CLIENT_AUTH_TOKEN || 'default_token';
 const PORT = Number(process.env.PORT || 3000);
 const HOST = process.env.HOST || '0.0.0.0';
@@ -77,7 +77,6 @@ process.on('unhandledRejection', (reason, promise) => {
 
 process.on('uncaughtException', (error) => {
   logger.error('Uncaught Exception:', error);
-  // Give logger time to flush before exiting
   setTimeout(() => process.exit(1), 1000);
 });
 
@@ -169,8 +168,7 @@ const builtinTools = [
       },
       additionalProperties: false
     }
-  }
-    ,
+  },
   {
     name: "set_emotion",
     description: "Change the facial expression / animation displayed on the robot screen to match your current emotion.",
@@ -186,8 +184,7 @@ const builtinTools = [
       required: ["emotion"],
       additionalProperties: false
     }
-  }
-    ,
+  },
   {
     name: "save_memory",
     description: "Save important new facts, preferences, events, or memories about Nikos and your shared life permanently to cloud memory, and increase your experience (XP).",
@@ -207,13 +204,12 @@ const builtinTools = [
       additionalProperties: false
     }
   }
-
 ];
 
 // MCP Server State
-const mcpClients = new Map(); // ws -> { id: string, tools: array }
+const mcpClients = new Map();
 let mcpMessageId = 1;
-const mcpCallbacks = new Map(); // id -> resolve function
+const mcpCallbacks = new Map();
 
 function sendMcpRequest(ws, method, params) {
   return new Promise((resolve, reject) => {
@@ -229,7 +225,7 @@ function sendMcpRequest(ws, method, params) {
     logger.debug(`[MCP] Sending to ${info?.id || 'unknown'}: ${JSON.stringify(requestPayload)}`);
     ws.send(JSON.stringify(requestPayload));
 
-          const timeoutMs = method === 'tools/call' ? 20000 : 30000;
+    const timeoutMs = method === 'tools/call' ? 20000 : 30000;
 
     setTimeout(() => {
       if (mcpCallbacks.has(id)) {
@@ -251,25 +247,22 @@ function setupMcpClient(ws, clientId, isXiaozhi = false) {
   mcpClients.set(ws, { id: clientId, tools: [], isXiaozhi });
   logger.info(`[MCP] Registering ${isXiaozhi ? 'Xiaozhi' : 'External'} device: ${clientId}`);
 
-  // Register in mcp_devices if new
   if (!mcpDevices[clientId]) {
     mcpDevices[clientId] = { status: 'pending', name: clientId };
     saveMcpDevices();
   }
 
-  // Initialize MCP Connection
   logger.debug(`[MCP] Sending initialize to ${clientId}`);
   return sendMcpRequest(ws, 'initialize', {
     protocolVersion: "2024-11-05",
-        capabilities: {
+    capabilities: {
       vision: {
-                url: `${process.env.PUBLIC_URL || 'https://ai8-bt26.onrender.com'}/vision/explain`,
+        url: `${process.env.PUBLIC_URL || 'https://onrender.com'}/vision/explain`,
         token: CLIENT_AUTH_TOKEN
       }
     },
     clientInfo: { name: "ParrotServer", version: "1.0.0" }
   }).then(() => {
-    // MCP Protocol requires sending an initialized notification before making further requests
     let initNotification = {
       jsonrpc: "2.0",
       method: "notifications/initialized",
@@ -302,18 +295,18 @@ app.use(session({
   secret: crypto.randomBytes(32).toString('hex'),
   resave: false,
   saveUninitialized: true,
-  cookie: { secure: false, maxAge: 24 * 60 * 60 * 1000 } // 24 hours
+  cookie: { secure: false, maxAge: 24 * 60 * 60 * 1000 }
 }));
+
 // Serve static files for web UI
 app.use(express.static(path.join(__dirname, 'public')));
+
 // Vision & Autonomous Photo Gallery (Ultra-High Detail)
 const PHOTOS_DIR = path.join(__dirname, 'public', 'photos');
 if (!fs.existsSync(PHOTOS_DIR)) fs.mkdirSync(PHOTOS_DIR, { recursive: true });
-        const boundary = '--' + (boundaryMatch[1] || boundaryMatch[2]);
 
 app.post('/vision/explain', express.raw({ type: '*/*', limit: '15mb' }), async (req, res) => {
-              if (val[1]) question = Buffer.from(val[1].replace(/\r\n$/, ''), 'binary').toString('utf8').trim();
-
+  try {
     let imageBuffer = null;
     let mimeType = 'image/jpeg';
     let question = req.headers['question'] || 'Κοίτα προσεκτικά και πες μου ακριβώς τι βλέπεις μπροστά σου.';
@@ -324,12 +317,12 @@ app.post('/vision/explain', express.raw({ type: '*/*', limit: '15mb' }), async (
     if (contentType.includes('multipart/form-data')) {
       const boundaryMatch = contentType.match(/boundary=(?:"([^"]+)"|([^;]+))/i);
       if (boundaryMatch) {
-        const boundary = '--' + (boundaryMatch || boundaryMatch);
+        const boundary = '--' + (boundaryMatch[1] || boundaryMatch[2]);
         const parts = rawBody.toString('binary').split(boundary);
         for (const part of parts) {
           if (part.includes('name="question"')) {
             const val = part.split('\r\n\r\n');
-            if (val) question = Buffer.from(val.replace(/\r\n$/, ''), 'binary').toString('utf8').trim();
+            if (val[1]) question = Buffer.from(val[1].replace(/\r\n$/, ''), 'binary').toString('utf8').trim();
           } else if (part.includes('filename=')) {
             const idx = part.indexOf('\r\n\r\n');
             if (idx !== -1) {
@@ -397,8 +390,6 @@ app.get('/photos', (req, res) => {
   }).join('')}</div></body></html>`;
   res.send(html);
 });
-
-  
 
 // Admin Authentication Middleware
 function requireAuth(req, res, next) {
@@ -487,10 +478,8 @@ app.post('/api/devices/:mac/config', requireAuth, (req, res) => {
 });
 
 app.get('/api/mcp_devices', requireAuth, (req, res) => {
-  // Merge live connected state with persisted state
   const response = {};
   
-  // Inject the built-in dashboard pseudo-device
   response[BUILTIN_MCP_ID] = {
     status: 'approved',
     name: 'Parrot Dashboard (Built-in)',
@@ -519,7 +508,6 @@ app.post('/api/mcp_devices/:id/approve', requireAuth, (req, res) => {
   mcpDevices[id].status = 'approved';
   saveMcpDevices();
 
-  // Trigger tool discovery for the approved device if connected
   for (const [ws, info] of mcpClients.entries()) {
     if (info.id === id) {
       logger.info(`[MCP] Device ${id} approved. Requesting tools...`);
@@ -540,7 +528,6 @@ app.delete('/api/mcp_devices/:id', requireAuth, (req, res) => {
   if (mcpDevices[id]) {
     delete mcpDevices[id];
     saveMcpDevices();
-    // Disconnect if currently connected
     for (const [ws, info] of mcpClients.entries()) {
       if (info.id === id) ws.close();
     }
@@ -552,7 +539,6 @@ app.delete('/api/mcp_devices/:id', requireAuth, (req, res) => {
 
 // Xiaozhi OTA / Discovery Endpoint
 app.all(['/', '/ota', '/ota/', '/xiaozhi/ota', '/xiaozhi/ota/'], (req, res) => {
-
   handleOta(req, res);
 });
 
@@ -568,7 +554,6 @@ function handleOta(req, res) {
     const protocol = req.headers['x-forwarded-proto'] || 'http';
     const wsProtocol = protocol === 'https' ? 'wss' : 'ws';
 
-    // Check device registration
     let isAllowed = false;
     if (devices[macAddress]) {
       if (devices[macAddress].status === 'approved' && devices[macAddress].uuid === uuid) {
@@ -581,7 +566,6 @@ function handleOta(req, res) {
         return res.status(403).json({ status: "error", message: "Max pending devices reached" });
       }
 
-      // Register as pending
       devices[macAddress] = {
         uuid,
         name: `Device ${macAddress}`,
@@ -606,7 +590,6 @@ function handleOta(req, res) {
           token: devices[macAddress].token || CLIENT_AUTH_TOKEN
         },
         server_time: { timestamp: Date.now(), timezone_offset: 120 }
-
       };
     } else {
       logger.warn(`[OTA] Pending/Unapproved device ${macAddress} requested OTA.`);
@@ -661,10 +644,9 @@ server.on('upgrade', (request, socket, head) => {
       wssMcp.emit('connection', ws, request);
     });
   } else {
-        wssXiaozhi.handleUpgrade(request, socket, head, (ws) => {
+    wssXiaozhi.handleUpgrade(request, socket, head, (ws) => {
       wssXiaozhi.emit('connection', ws, request);
     });
-
   }
 });
 
@@ -696,14 +678,12 @@ wssMcp.on('connection', (ws, req) => {
     ws.close(1008, 'Unauthorized');
     return;
   } else if (!mcpDevice.token && token) {
-    // Legacy MCP device or previously unauthenticated device, lock it to the new token
     mcpDevice.token = token;
     saveMcpDevices();
   }
 
   logger.info(`[MCP] New client connected: ${clientId} from ${req.socket.remoteAddress}`);
 
-  // Keep-alive ping to prevent aggressive idle timeouts from Nginx/Node
   const pingInterval = setInterval(() => {
     if (ws.readyState === WebSocket.OPEN) {
       ws.ping();
@@ -713,7 +693,7 @@ wssMcp.on('connection', (ws, req) => {
   ws.on('message', (message) => {
     try {
       const data = JSON.parse(message.toString());
-      logger.debug(`[MCP] Received from ${clientId}: ${JSON.stringify(data)}`); // Added debug log
+      logger.debug(`[MCP] Received from ${clientId}: ${JSON.stringify(data)}`);
 
       let mcpId = data.id;
       if (mcpId !== undefined && typeof mcpId === 'string' && !isNaN(Number(mcpId))) {
@@ -731,8 +711,7 @@ wssMcp.on('connection', (ws, req) => {
     }
   });
 
-    let deviceConfig = devices[macAddress] || Object.values(devices)[0] || {
-
+  ws.on('close', () => {
     logger.info(`[MCP] Client disconnected: ${clientId}`);
     mcpClients.delete(ws);
     clearInterval(pingInterval);
@@ -751,9 +730,9 @@ wssXiaozhi.on('connection', (ws, req) => {
   let token = url.searchParams.get('token');
 
   if (authHeader && authHeader.startsWith('Bearer ')) token = authHeader.substring(7);
-    const rawMac = req.headers['device-id'] || url.searchParams.get('device-id') || 'unknown';
+  const rawMac = req.headers['device-id'] || url.searchParams.get('device-id') || 'unknown';
   const macAddress = rawMac.toLowerCase();
-  let deviceConfig = devices[macAddress] || Object.values(devices) || {
+  let deviceConfig = devices[macAddress] || Object.values(devices).at(0) || {
     prompt: "You are a helpful assistant.",
     input_transcription: true,
     output_transcription: true,
@@ -772,6 +751,12 @@ wssXiaozhi.on('connection', (ws, req) => {
   let lastTtsTime = 0;
   let currentTtsDelay = 0;
   const FRAME_DURATION_MS = 60;
+
+  function queueTtsText(text) {
+    text = text.trim();
+    if (text.length > 0) ttsTextQueue.push(text);
+    scheduleAudioSend();
+  }
 
   const decoder = new prism.opus.Decoder({ frameSize: 960, channels: 1, rate: 16000 });
   const encoder = new prism.opus.Encoder({ frameSize: 1440, channels: 1, rate: 24000 });
@@ -866,13 +851,12 @@ wssXiaozhi.on('connection', (ws, req) => {
       const activeBackend = deviceConfig.llm_backend || LLM_BACKEND;
       
       let config = { ...deviceConfig };
-            let cloudMemoryPrompt = '';
+      let cloudMemoryPrompt = '';
       const JSONBIN_BIN_ID = (process.env.JSONBIN_BIN_ID || '6afc7bc3ffd5d16053c8ed64').trim();
       const JSONBIN_API_KEY = (process.env.JSONBIN_API_KEY || '').trim();
       if (JSONBIN_BIN_ID && JSONBIN_API_KEY) {
         try {
-                    const jbRes = await fetch(`https://jsonbin.io{JSONBIN_BIN_ID}/latest`, {
-
+          const jbRes = await fetch(`https://jsonbin.io{JSONBIN_BIN_ID}/latest`, {
             headers: { 'X-Master-Key': JSONBIN_API_KEY }
           });
           if (jbRes.ok) {
@@ -888,11 +872,10 @@ wssXiaozhi.on('connection', (ws, req) => {
         }
       }
       config.prompt = (deviceConfig.prompt || '') + cloudMemoryPrompt;
-
       config.input_transcription = deviceConfig.input_transcription;
       config.output_transcription = deviceConfig.output_transcription;
 
-      let newProvider;
+          let newProvider;
       const providerConfigDef = providersConfig.find(p => p.id === activeBackend);
       const isConfigured = providerConfigDef && (!providerConfigDef.envVars || providerConfigDef.envVars.every(envVar => !!process.env[envVar]));
 
@@ -926,8 +909,8 @@ wssXiaozhi.on('connection', (ws, req) => {
           }
       } else if (activeBackend === 'llama_liquid_interleaved') {
           config.url = LIQUID_SERVER_URL;
-          config.model = deviceConfig.llama_model || providerConfigDef.models[0].id;
-          config.voice = deviceConfig.llama_voice || providerConfigDef.voices[0];
+          config.model = deviceConfig.llama_model || providerConfigDef.models.at(0).id;
+          config.voice = deviceConfig.llama_voice || providerConfigDef.voices.at(0);
           newProvider = new LlamaLiquidLfm3Provider(config);
       } else {
           logger.error(`[${sessionId}] Unknown backend: ${activeBackend}`);
@@ -988,7 +971,7 @@ wssXiaozhi.on('connection', (ws, req) => {
           outputTranscriptionBuffer += text;
           let match;
           while ((match = outputTranscriptionBuffer.match(/.*?([。！？.!?\n]+)/))) {
-              const textToSend = match[0];
+              const textToSend = match.at(0);
               outputTranscriptionBuffer = outputTranscriptionBuffer.substring(textToSend.length);
               queueTtsText(textToSend);
           }
@@ -1006,21 +989,20 @@ wssXiaozhi.on('connection', (ws, req) => {
           modelDone = true;
       });
 
-            newProvider.on('interrupted', () => {
+      newProvider.on('interrupted', () => {
           if (ws.readyState === WebSocket.OPEN) {
               ws.send(JSON.stringify({ type: 'abort', session_id: sessionId, reason: 'interrupted' }));
               if (isSpeaking) {
                   ws.send(JSON.stringify({ type: 'tts', state: 'stop', session_id: sessionId }));
               }
           }
-
           isSpeaking = false;
           modelDone = false;
           audioOutputQueue = [];
           ttsTextQueue = [];
       });
 
-      newProvider.on('tool_call', (callId, name, args) => {
+          newProvider.on('tool_call', (callId, name, args) => {
           logger.info(`[${sessionId}] Provider requested tool call: ${name}`);
           if (name === 'set_emotion') {
               if (ws.readyState === WebSocket.OPEN && args.emotion) {
@@ -1028,13 +1010,14 @@ wssXiaozhi.on('connection', (ws, req) => {
               }
               if (provider) provider.sendToolResponse(callId, name, JSON.stringify({ success: true, emotion: args.emotion }));
               return;
-          }          if (name === 'save_memory') {
+          }
+
+          if (name === 'save_memory') {
               const JSONBIN_BIN_ID = (process.env.JSONBIN_BIN_ID || '6afc7bc3ffd5d16053c8ed64').trim();
               const JSONBIN_API_KEY = (process.env.JSONBIN_API_KEY || '').trim();
               (async () => {
                 try {
-                                    const getRes = await fetch(`https://jsonbin.io{JSONBIN_BIN_ID}/latest`, {
-
+                  let currentRecord = { xp: 489, memory: '', voice: 'Puck' };
                   const getRes = await fetch(`https://jsonbin.io{JSONBIN_BIN_ID}/latest`, {
                     headers: { 'X-Master-Key': JSONBIN_API_KEY }
                   });
@@ -1044,7 +1027,6 @@ wssXiaozhi.on('connection', (ws, req) => {
                   }
                   currentRecord.memory = args.memory || currentRecord.memory;
                   currentRecord.xp = (Number(currentRecord.xp) || 0) + (Number(args.xp_gain) || 10);
-                  await fetch(`https://jsonbin.io{JSONBIN_BIN_ID}`, {
 
                   await fetch(`https://jsonbin.io{JSONBIN_BIN_ID}`, {
                     method: 'PUT',
@@ -1085,7 +1067,6 @@ wssXiaozhi.on('connection', (ws, req) => {
                   mcpDevices[args.id].status = 'approved';
                   saveMcpDevices();
 
-                  // Trigger tool discovery for the newly approved MCP device if it's currently connected
                   for (const [ws, info] of mcpClients.entries()) {
                       if (info.id === args.id) {
                           sendMcpRequest(ws, 'tools/list', {}).then(res => {
@@ -1150,8 +1131,9 @@ wssXiaozhi.on('connection', (ws, req) => {
               return;
           }
 
-          let targetWs = null;
-          for (const [mcpWs, info] of mcpClients.entries()) {              const mcpStatus = mcpDevices[info.id]?.status;
+                                   let targetWs = null;
+          for (const [mcpWs, info] of mcpClients.entries()) {
+              const mcpStatus = mcpDevices[info.id]?.status;
               if ((mcpStatus === 'approved' && enabledMcpSet.has(info.id)) || info.id === macAddress) {
                   if (info.tools.find(t => t.name === name)) {
                       targetWs = mcpWs;
@@ -1164,7 +1146,7 @@ wssXiaozhi.on('connection', (ws, req) => {
               sendMcpRequest(targetWs, 'tools/call', { name, arguments: args })
                   .then(mcpRes => {
                       if (!provider) return;
-                      const resultText = mcpRes.result?.content?.[0]?.text || JSON.stringify(mcpRes.result || { success: true });
+                      const resultText = mcpRes.result?.content?.at(0)?.text || JSON.stringify(mcpRes.result || { success: true });
                       logger.info(`[${sessionId}] Tool call ${name} succeeded.`);
                       provider.sendToolResponse(callId, name, resultText);
                   })
@@ -1198,7 +1180,7 @@ wssXiaozhi.on('connection', (ws, req) => {
     }
   }
 
-    ws.on('message', (message, isBinary) => {
+  ws.on('message', (message, isBinary) => {
     if (isBinary) {
       decoder.write(message);
     } else {
@@ -1244,12 +1226,8 @@ wssXiaozhi.on('connection', (ws, req) => {
               startSession();
             }
           }
-
-              
-            
-          
         } else if (data.type === 'listen' && data.state === 'start' && !provider) {
-          // You can also start gemini session strictly when client sends listen: start
+          // Session already starts on hello
         } else if (data.type === 'abort') {
           logger.info(`[${sessionId}] Received abort from device. Clearing queues.`);
           if (provider && typeof provider.interrupt === 'function') {
@@ -1284,8 +1262,6 @@ wssXiaozhi.on('connection', (ws, req) => {
       provider = null;
     }
   });
-
-  // startGeminiSession(); // Removed immediate start
 });
 
 server.listen(PORT, HOST, () => {
@@ -1293,3 +1269,4 @@ server.listen(PORT, HOST, () => {
   logger.info(`Web UI: http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}/`);
   logger.info(`MCP Endpoint: ws://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}/mcp`);
 });
+
